@@ -463,14 +463,23 @@ def plot_neighbors_logn_tex(model, results, selected_idx, knn_neighbors, expecte
 
 def extract_filter_params(filename):
     """Extract velocity, FWHM, and sigma parameters from filter filename"""
-    velo_match = re.search(r'velo([\d.]+)', filename)
-    fwhm_match = re.search(r'fwhm([\d.]+)', filename)
-    sigma_match = re.search(r'sigma([\d.]+)', filename)
-    
-    velo = float(velo_match.group(1)) if velo_match else None
-    fwhm = float(fwhm_match.group(1)) if fwhm_match else None
-    sigma = float(sigma_match.group(1)) if sigma_match else None
-    
+    velo_match = re.search(r'velo([0-9]+(?:\.[0-9]+)?)', filename)
+    fwhm_match = re.search(r'fwhm([0-9]+(?:\.[0-9]+)?)', filename)
+    sigma_match = re.search(r'sigma([0-9]+(?:\.[0-9]+)?)', filename)
+
+    try:
+        velo = float(velo_match.group(1)) if velo_match else None
+    except Exception:
+        velo = None
+    try:
+        fwhm = float(fwhm_match.group(1)) if fwhm_match else None
+    except Exception:
+        fwhm = None
+    try:
+        sigma = float(sigma_match.group(1)) if sigma_match else None
+    except Exception:
+        sigma = None
+
     return velo, fwhm, sigma
 
 def get_available_filter_params(filters_dir):
