@@ -76,8 +76,14 @@ def extract_molecule_formula(header):
 
 def load_and_interpolate_spectrum(file_content, filename, reference_frequencies):
     """Load spectrum from file content and interpolate to reference frequencies"""
-    lines = file_content.decode('utf-8').splitlines()
-    
+    try:
+        try:
+            lines = file_content.decode('utf-8').splitlines()
+        except UnicodeDecodeError:
+            lines = file_content.decode('latin-1').splitlines()
+    except Exception as e:
+        raise ValueError(f"Could not decode file {filename}: {e}")
+
     # Determine file format
     first_line = lines[0].strip()
     second_line = lines[1].strip() if len(lines) > 1 else ""
@@ -649,7 +655,7 @@ def main():
                 st.session_state.selected_sigma = selected_sigma
 
                 # Mueve aquí el checkbox de absorción
-                consider_absorption = st.checkbox("Consider absorption lines (allow negative values)", value=True)
+                consider_absorption = st.checkbox("Consider absorption lines (allow negative values)", value=False)
                 st.session_state.consider_absorption = consider_absorption
             else:
                 st.error("No valid filters found in the '1.Filters' directory")
@@ -1371,7 +1377,5 @@ def read_spectrum_file(file_obj, filename):
 
     raise ValueError("No se pudo procesar el archivo con ningún método conocido")
 
-
 if __name__ == "__main__":
     main()
-
