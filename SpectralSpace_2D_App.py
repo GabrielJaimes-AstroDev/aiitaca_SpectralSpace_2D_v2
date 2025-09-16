@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 import tempfile
 from tqdm import tqdm
 from glob import glob
+import shutil
 
 # Set page configuration
 st.set_page_config(
@@ -502,42 +503,33 @@ def get_available_filter_params(filters_dir):
     return sorted(velocities), sorted(fwhms), sorted(sigmas)
 
 def apply_filter_to_spectrum(spectrum_data, filter_path, output_dir):
-    """Apply a filter to a spectrum and return the filtered spectrum"""
+    """Apply a filter to a spectrum and return the filtered spectrum with zeros where filter is zero"""
     try:
         # Read filter data
         filter_data = np.loadtxt(filter_path, comments='/')
         freq_filter_hz = filter_data[:, 0]  # Hz
         intensity_filter = filter_data[:, 1]
         freq_filter = freq_filter_hz / 1e9  # Convert to GHz
-        
+
         # Normalize the filter
         if np.max(intensity_filter) > 0:
             intensity_filter = intensity_filter / np.max(intensity_filter)
-        
-        # Create binary mask
-        mask = intensity_filter != 0
-        
-        # Extract spectrum data
+
+        # Interpolate the original spectrum to filter frequencies
         freq_spectrum = spectrum_data[:, 0]  # GHz
         intensity_spectrum = spectrum_data[:, 1]  # K
-        
-        # Interpolate the original spectrum to filter frequencies
         interp_spec = interp1d(freq_spectrum, intensity_spectrum, kind='cubic', bounds_error=False, fill_value=0)
         spectrum_on_filter = interp_spec(freq_filter)
-        
-        # Apply the filter
-        filtered_freqs = freq_filter[mask]
-        filtered_intensities = spectrum_on_filter[mask]
-        
-        # Clip negative values to zero
-        filtered_intensities = np.clip(filtered_intensities, 0, None)
-        
+
+        # Apply the filter: multiply by intensity_filter (so zeros are preserved)
+        filtered_intensities = spectrum_on_filter * intensity_filter
+
         # Convert frequencies back to Hz for analysis
-        filtered_freqs_hz = filtered_freqs * 1e9
-        
-        # Return the filtered spectrum data
+        filtered_freqs_hz = freq_filter * 1e9
+
+        # Return the filtered spectrum data (all points, including zeros)
         return np.column_stack((filtered_freqs_hz, filtered_intensities))
-        
+
     except Exception as e:
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
