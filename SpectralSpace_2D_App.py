@@ -1201,47 +1201,52 @@ def analyze_spectra(model, spectra_files, knn_neighbors=5):
         'umap_embedding_new': [],
         'knn_neighbors': []
     }
-
+    
+    # Get model components
     scaler = model['scaler']
     pca = model['pca']
     umap_model = model['umap']
     ref_freqs = model['reference_frequencies']
-
-    for name, path in tqdm(spectra_files, desc="Processing spectra"):
+    
+    # Process each spectrum
+    for spectrum_file in tqdm(spectra_files, desc="Processing spectra"):
         try:
-            with open(path, "rb") as spectrum_file:
-                spectrum_data, interpolated, formula, params, filename = load_and_interpolate_spectrum(
-                    spectrum_file.read(), name, ref_freqs
-                )
+            spectrum_data, interpolated, formula, params, filename = load_and_interpolate_spectrum(
+                spectrum_file.read(), spectrum_file.name, ref_freqs
+            )
+            
+            # Transform the spectrum
             X_scaled = scaler.transform([interpolated])
             X_pca = pca.transform(X_scaled)
             X_umap = umap_model.transform(X_pca)
-
+            
             results['X_new'].append(interpolated)
             results['formulas_new'].append(formula)
             results['y_new'].append(params)
-            results['filenames_new'].append(name)  # Usa el nombre descriptivo
+            results['filenames_new'].append(filename)
             results['umap_embedding_new'].append(X_umap[0])
             results['pca_components_new'].append(X_pca[0])
-
+            
         except Exception as e:
-            st.warning(f"Error processing {name}: {str(e)}")
+            st.warning(f"Error processing {spectrum_file.name}: {str(e)}")
             continue
-
+    
     if not results['umap_embedding_new']:
         st.error("No valid spectra could be processed.")
         return results
-
+    
+    # Convert to arrays
     results['X_new'] = np.array(results['X_new'])
     results['y_new'] = np.array(results['y_new'])
     results['formulas_new'] = np.array(results['formulas_new'])
     results['umap_embedding_new'] = np.array(results['umap_embedding_new'])
     results['pca_components_new'] = np.array(results['pca_components_new'])
-
+    
+    # Find KNN neighbors
     results['knn_neighbors'] = find_knn_neighbors(
         model['embedding'], results['umap_embedding_new'], k=knn_neighbors
     )
-
+    
     return results
 
 if __name__ == "__main__":
