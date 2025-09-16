@@ -1370,3 +1370,8 @@ def read_spectrum_file(file_obj, filename):
         raise ValueError(f"Error al procesar el archivo {filename}: {str(e)}")
 
     raise ValueError("No se pudo procesar el archivo con ningún método conocido")
+
+
+if __name__ == "__main__":
+    main()
+
