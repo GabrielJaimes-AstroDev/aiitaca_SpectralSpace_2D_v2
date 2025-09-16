@@ -534,8 +534,8 @@ def apply_filter_to_spectrum(spectrum_data, filter_path, output_dir):
         st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
         return None
 
-def generate_filtered_spectra(spectrum_data, filters_dir, selected_velo, selected_fwhm, selected_sigma):
-    """Generate filtered spectra based on selected parameters"""
+def generate_filtered_spectra(spectrum_data, filters_dir, selected_velo, selected_fwhm, selected_sigma, allow_negative=True):
+    """Generate filtered spectra based on selected parameters and absorption option"""
     filter_files = glob(os.path.join(filters_dir, "*.txt"))
     filtered_spectra = []
     
@@ -550,6 +550,8 @@ def generate_filtered_spectra(spectrum_data, filters_dir, selected_velo, selecte
             
             filtered_spectrum = apply_filter_to_spectrum(spectrum_data, filter_path, tempfile.gettempdir())
             if filtered_spectrum is not None:
+                if not allow_negative:
+                    filtered_spectrum[:, 1] = np.where(filtered_spectrum[:, 1] < 0, 0, filtered_spectrum[:, 1])
                 filtered_spectra.append((filter_name, filtered_spectrum))
     
     return filtered_spectra
@@ -650,6 +652,10 @@ def main():
         knn_neighbors = st.slider("Number of KNN neighbors", min_value=1, max_value=50, value=5)
         max_neighbors_plot = st.slider("Max neighbors for convergence plot", min_value=5, max_value=100, value=20)
         
+        # Opción para considerar líneas de absorción
+        consider_absorption = st.checkbox("Consider absorption lines (allow negative values)", value=True)
+        st.session_state.consider_absorption = consider_absorption
+        
         # Optional expected values input
         st.subheader("5. Expected Values (Optional)")
         st.markdown("Enter expected values and errors for comparison:")
@@ -688,7 +694,8 @@ def main():
                         filters_dir, 
                         st.session_state.selected_velo, 
                         st.session_state.selected_fwhm, 
-                        st.session_state.selected_sigma
+                        st.session_state.selected_sigma,
+                        allow_negative=st.session_state.consider_absorption
                     )
                     
                     if not filtered_spectra:
