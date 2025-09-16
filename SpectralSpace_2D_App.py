@@ -642,6 +642,10 @@ def main():
                 st.session_state.selected_velo = selected_velo
                 st.session_state.selected_fwhm = selected_fwhm
                 st.session_state.selected_sigma = selected_sigma
+
+                # Mueve aquí el checkbox de absorción
+                consider_absorption = st.checkbox("Consider absorption lines (allow negative values)", value=True)
+                st.session_state.consider_absorption = consider_absorption
             else:
                 st.error("No valid filters found in the '1.Filters' directory")
         else:
@@ -651,10 +655,6 @@ def main():
         st.subheader("4. Analysis Parameters")
         knn_neighbors = st.slider("Number of KNN neighbors", min_value=1, max_value=50, value=5)
         max_neighbors_plot = st.slider("Max neighbors for convergence plot", min_value=5, max_value=100, value=20)
-        
-        # Opción para considerar líneas de absorción
-        consider_absorption = st.checkbox("Consider absorption lines (allow negative values)", value=True)
-        st.session_state.consider_absorption = consider_absorption
         
         # Optional expected values input
         st.subheader("5. Expected Values (Optional)")
