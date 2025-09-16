@@ -704,6 +704,8 @@ def main():
                         file_obj = tempfile.NamedTemporaryFile(delete=False, suffix='.txt')
                         np.savetxt(file_obj, filtered_data, delimiter='\t', fmt=['%.10f', '%.6e'])
                         file_obj.seek(0)
+                        # Guardar el nombre descriptivo en el objeto
+                        file_obj.name = filter_name  # <--- CAMBIO AQUÍ
                         spectra_files.append(file_obj)
                     
                     # Analyze the filtered spectra
