@@ -14,6 +14,8 @@ import tempfile
 from tqdm import tqdm
 from glob import glob
 import shutil
+import zipfile
+from astropy.io import fits
 
 # Set page configuration
 st.set_page_config(
@@ -619,7 +621,10 @@ def main():
         
         # Spectra upload
         st.subheader("2. Upload Spectrum")
-        spectrum_file = st.file_uploader("Upload spectrum file (TXT)", type=['txt'])
+        spectrum_file = st.file_uploader(
+            "Upload spectrum file (TXT, FITS, SPEC, DAT)", 
+            type=['txt', 'fits', 'spec', 'dat']
+        )
         
         if spectrum_file:
             st.session_state.spectrum_file = spectrum_file
@@ -1258,5 +1263,110 @@ def analyze_spectra(model, spectra_files, knn_neighbors=5):
     
     return results
 
-if __name__ == "__main__":
-    main()
+def read_spectrum_file(file_obj, filename):
+    """
+    Lee archivos .txt, .fits, .spec (zip con fits) y .dat.
+    Devuelve: freq (Hz), spec (intensidad), header, logn, tex
+    """
+    input_logn = None
+    input_tex = None
+    header = ""
+    freq = np.array([])
+    spec = np.array([])
+
+    ext = filename.lower().split('.')[-1]
+
+    try:
+        # TXT/DAT
+        if ext in ['txt', 'dat', 'spec']:
+            try:
+                content = file_obj.read().decode('utf-8')
+            except UnicodeDecodeError:
+                content = file_obj.read().decode('latin-1')
+            lines = content.splitlines()
+            header = lines[0].strip() if lines else ""
+            input_params = re.search(r'logn[\s=:]+([\d.]+).*tex[\s=:]+([\d.]+)', header.lower()) if header else None
+            if input_params:
+                try:
+                    input_logn = float(input_params.group(1))
+                    input_tex = float(input_params.group(2))
+                except (ValueError, TypeError):
+                    input_logn = None
+                    input_tex = None
+
+            data = []
+            for line in lines[1:]:
+                line = line.strip()
+                if line and not line.startswith(("//", "#")):
+                    parts = re.split(r'[\s,;]+', line)
+                    if len(parts) >= 2:
+                        try:
+                            frequency = float(parts[0]) * 1e9  # Convertir a Hz
+                            intensity = float(parts[1])
+                            data.append((frequency, intensity))
+                        except ValueError:
+                            continue
+
+            if len(data) >= 10:
+                freq, spec = zip(*data)
+                freq = np.array(freq)
+                spec = np.array(spec)
+                return freq, spec, header, input_logn, input_tex
+
+        # FITS
+        if ext == 'fits':
+            with fits.open(file_obj) as hdul:
+                if len(hdul) > 1:
+                    table = hdul[1].data
+                    all_freqs = []
+                    all_intensities = []
+                    for row in table:
+                        spectrum = row['DATA']
+                        crval3 = row['CRVAL3']
+                        cdelt3 = row['CDELT3']
+                        crpix3 = row['CRPIX3']
+                        n = len(spectrum)
+                        channels = np.arange(n)
+                        frequencies = crval3 + (channels + 1 - crpix3) * cdelt3
+                        all_freqs.append(frequencies)
+                        all_intensities.append(spectrum)
+                    combined_freqs = np.concatenate(all_freqs)
+                    combined_intensities = np.concatenate(all_intensities)
+                    sorted_indices = np.argsort(combined_freqs)
+                    freq = combined_freqs[sorted_indices]
+                    spec = combined_intensities[sorted_indices]
+                    header = f"Processed from FITS file: {filename}"
+                    return freq, spec, header, input_logn, input_tex
+
+        # ZIP con FITS (.spec)
+        if ext == 'spec' and zipfile.is_zipfile(file_obj):
+            with zipfile.ZipFile(file_obj) as zip_ref:
+                fits_files = [f for f in zip_ref.namelist() if f.endswith('.fits')]
+                if fits_files:
+                    with zip_ref.open(fits_files[0]) as fits_file:
+                        with fits.open(fits_file) as hdul:
+                            table = hdul[1].data
+                            all_freqs = []
+                            all_intensities = []
+                            for row in table:
+                                spectrum = row['DATA']
+                                crval3 = row['CRVAL3']
+                                cdelt3 = row['CDELT3']
+                                crpix3 = row['CRPIX3']
+                                n = len(spectrum)
+                                channels = np.arange(n)
+                                frequencies = crval3 + (channels + 1 - crpix3) * cdelt3
+                                all_freqs.append(frequencies)
+                                all_intensities.append(spectrum)
+                            combined_freqs = np.concatenate(all_freqs)
+                            combined_intensities = np.concatenate(all_intensities)
+                            sorted_indices = np.argsort(combined_freqs)
+                            freq = combined_freqs[sorted_indices]
+                            spec = combined_intensities[sorted_indices]
+                            header = f"Processed from FITS file within {filename}"
+                            return freq, spec, header, input_logn, input_tex
+
+    except Exception as e:
+        raise ValueError(f"Error al procesar el archivo {filename}: {str(e)}")
+
+    raise ValueError("No se pudo procesar el archivo con ningún método conocido")
