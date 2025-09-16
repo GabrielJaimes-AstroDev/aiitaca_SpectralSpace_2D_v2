@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import tempfile
 from tqdm import tqdm
+from glob import glob
 
 # Set page configuration
 st.set_page_config(
@@ -460,6 +461,98 @@ def plot_neighbors_logn_tex(model, results, selected_idx, knn_neighbors, expecte
     
     return fig
 
+def extract_filter_params(filename):
+    """Extract velocity, FWHM, and sigma parameters from filter filename"""
+    velo_match = re.search(r'velo([\d.]+)', filename)
+    fwhm_match = re.search(r'fwhm([\d.]+)', filename)
+    sigma_match = re.search(r'sigma([\d.]+)', filename)
+    
+    velo = float(velo_match.group(1)) if velo_match else None
+    fwhm = float(fwhm_match.group(1)) if fwhm_match else None
+    sigma = float(sigma_match.group(1)) if sigma_match else None
+    
+    return velo, fwhm, sigma
+
+def get_available_filter_params(filters_dir):
+    """Get available velocity, FWHM, and sigma values from filter files"""
+    filter_files = glob(os.path.join(filters_dir, "*.txt"))
+    
+    velocities = set()
+    fwhms = set()
+    sigmas = set()
+    
+    for filter_file in filter_files:
+        velo, fwhm, sigma = extract_filter_params(os.path.basename(filter_file))
+        if velo is not None:
+            velocities.add(velo)
+        if fwhm is not None:
+            fwhms.add(fwhm)
+        if sigma is not None:
+            sigmas.add(sigma)
+    
+    return sorted(velocities), sorted(fwhms), sorted(sigmas)
+
+def apply_filter_to_spectrum(spectrum_data, filter_path, output_dir):
+    """Apply a filter to a spectrum and return the filtered spectrum"""
+    try:
+        # Read filter data
+        filter_data = np.loadtxt(filter_path, comments='/')
+        freq_filter_hz = filter_data[:, 0]  # Hz
+        intensity_filter = filter_data[:, 1]
+        freq_filter = freq_filter_hz / 1e9  # Convert to GHz
+        
+        # Normalize the filter
+        if np.max(intensity_filter) > 0:
+            intensity_filter = intensity_filter / np.max(intensity_filter)
+        
+        # Create binary mask
+        mask = intensity_filter != 0
+        
+        # Extract spectrum data
+        freq_spectrum = spectrum_data[:, 0]  # GHz
+        intensity_spectrum = spectrum_data[:, 1]  # K
+        
+        # Interpolate the original spectrum to filter frequencies
+        interp_spec = interp1d(freq_spectrum, intensity_spectrum, kind='cubic', bounds_error=False, fill_value=0)
+        spectrum_on_filter = interp_spec(freq_filter)
+        
+        # Apply the filter
+        filtered_freqs = freq_filter[mask]
+        filtered_intensities = spectrum_on_filter[mask]
+        
+        # Clip negative values to zero
+        filtered_intensities = np.clip(filtered_intensities, 0, None)
+        
+        # Convert frequencies back to Hz for analysis
+        filtered_freqs_hz = filtered_freqs * 1e9
+        
+        # Return the filtered spectrum data
+        return np.column_stack((filtered_freqs_hz, filtered_intensities))
+        
+    except Exception as e:
+        st.error(f"Error applying filter {os.path.basename(filter_path)}: {str(e)}")
+        return None
+
+def generate_filtered_spectra(spectrum_data, filters_dir, selected_velo, selected_fwhm, selected_sigma):
+    """Generate filtered spectra based on selected parameters"""
+    filter_files = glob(os.path.join(filters_dir, "*.txt"))
+    filtered_spectra = []
+    
+    for filter_path in filter_files:
+        filter_name = os.path.basename(filter_path)
+        velo, fwhm, sigma = extract_filter_params(filter_name)
+        
+        # Check if filter matches selected parameters
+        if (velo == selected_velo and 
+            fwhm == selected_fwhm and 
+            sigma == selected_sigma):
+            
+            filtered_spectrum = apply_filter_to_spectrum(spectrum_data, filter_path, tempfile.gettempdir())
+            if filtered_spectrum is not None:
+                filtered_spectra.append((filter_name, filtered_spectrum))
+    
+    return filtered_spectra
+
 def main():
 
      # Add the header image and title
@@ -503,6 +596,8 @@ def main():
         st.session_state.user_expected_errors = [np.nan, np.nan, np.nan, np.nan]
     if 'max_neighbors_avg' not in st.session_state:
         st.session_state.max_neighbors_avg = None
+    if 'filtered_spectra' not in st.session_state:
+        st.session_state.filtered_spectra = []
     
     # Sidebar for inputs
     with st.sidebar:
@@ -520,19 +615,42 @@ def main():
                         st.success("Model loaded successfully!")
         
         # Spectra upload
-        st.subheader("2. Upload Spectra")
-        spectra_files = st.file_uploader("Upload spectrum files (TXT)", type=['txt'], accept_multiple_files=True)
+        st.subheader("2. Upload Spectrum")
+        spectrum_file = st.file_uploader("Upload spectrum file (TXT)", type=['txt'])
         
-        if spectra_files:
-            st.session_state.spectra_files = spectra_files
+        if spectrum_file:
+            st.session_state.spectrum_file = spectrum_file
+        
+        # Filter parameters
+        st.subheader("3. Filter Parameters")
+        
+        # Define filters directory
+        filters_dir = "1.Filters"
+        
+        if os.path.exists(filters_dir):
+            # Get available parameters from filters
+            velocities, fwhms, sigmas = get_available_filter_params(filters_dir)
+            
+            if velocities and fwhms and sigmas:
+                selected_velo = st.selectbox("Velocity", velocities, index=0)
+                selected_fwhm = st.selectbox("FWHM", fwhms, index=0)
+                selected_sigma = st.selectbox("Sigma", sigmas, index=0)
+                
+                st.session_state.selected_velo = selected_velo
+                st.session_state.selected_fwhm = selected_fwhm
+                st.session_state.selected_sigma = selected_sigma
+            else:
+                st.error("No valid filters found in the '1.Filters' directory")
+        else:
+            st.error("Filters directory '1.Filters' not found")
         
         # Analysis parameters
-        st.subheader("3. Analysis Parameters")
+        st.subheader("4. Analysis Parameters")
         knn_neighbors = st.slider("Number of KNN neighbors", min_value=1, max_value=50, value=5)
         max_neighbors_plot = st.slider("Max neighbors for convergence plot", min_value=5, max_value=100, value=20)
         
         # Optional expected values input
-        st.subheader("4. Expected Values (Optional)")
+        st.subheader("5. Expected Values (Optional)")
         st.markdown("Enter expected values and errors for comparison:")
         
         param_labels = ['log(N)', 'T_ex (K)', 'Velocity (km/s)', 'FWHM (km/s)']
@@ -551,11 +669,45 @@ def main():
         st.session_state.user_expected_values = user_expected_values
         st.session_state.user_expected_errors = user_expected_errors
         
-        if st.button("Analyze Spectra") and st.session_state.model is not None and st.session_state.spectra_files:
-            with st.spinner("Analyzing spectra..."):
+        if st.button("Generate Filtered Spectra and Analyze") and st.session_state.model is not None and hasattr(st.session_state, 'spectrum_file'):
+            with st.spinner("Generating filtered spectra and analyzing..."):
                 try:
+                    # Load the original spectrum
+                    spectrum_content = st.session_state.spectrum_file.getvalue()
+                    spectrum_filename = st.session_state.spectrum_file.name
+                    
+                    # Read spectrum data
+                    lines = spectrum_content.decode('utf-8').splitlines()
+                    data_lines = [line for line in lines if not (line.strip().startswith('!') or line.strip().startswith('//'))]
+                    spectrum_data = np.loadtxt(data_lines)
+                    
+                    # Generate filtered spectra
+                    filtered_spectra = generate_filtered_spectra(
+                        spectrum_data, 
+                        filters_dir, 
+                        st.session_state.selected_velo, 
+                        st.session_state.selected_fwhm, 
+                        st.session_state.selected_sigma
+                    )
+                    
+                    if not filtered_spectra:
+                        st.error("No filters found matching the selected parameters")
+                        return
+                    
+                    st.session_state.filtered_spectra = filtered_spectra
+                    
+                    # Convert filtered spectra to file-like objects for analysis
+                    spectra_files = []
+                    for filter_name, filtered_data in filtered_spectra:
+                        # Create a temporary file-like object
+                        file_obj = tempfile.NamedTemporaryFile(delete=False, suffix='.txt')
+                        np.savetxt(file_obj, filtered_data, delimiter='\t', fmt=['%.10f', '%.6e'])
+                        file_obj.seek(0)
+                        spectra_files.append(file_obj)
+                    
+                    # Analyze the filtered spectra
                     model = st.session_state.model
-                    results = analyze_spectra(model, st.session_state.spectra_files, knn_neighbors)
+                    results = analyze_spectra(model, spectra_files, knn_neighbors)
                     st.session_state.results = results
                     
                     # Calculate expected values and uncertainties
@@ -574,7 +726,8 @@ def main():
                         st.session_state.expected_values = expected_values_list
                         st.session_state.uncertainties = uncertainties_list
                     
-                    st.success("Analysis completed!")
+                    st.success(f"Analysis completed! Generated {len(filtered_spectra)} filtered spectra.")
+                    
                 except Exception as e:
                     st.error(f"Error during analysis: {str(e)}")
     
@@ -623,7 +776,7 @@ def main():
             st.metric("Variance Threshold", f"{model.get('variance_threshold', 0.99)*100:.1f}%")
     
     if st.session_state.results is None:
-        st.info("Upload spectrum files and click 'Analyze Spectra' to see results.")
+        st.info("Upload a spectrum file, select filter parameters, and click 'Generate Filtered Spectra and Analyze' to see results.")
         return
     
     results = st.session_state.results
@@ -1058,7 +1211,7 @@ def analyze_spectra(model, spectra_files, knn_neighbors=5):
     for spectrum_file in tqdm(spectra_files, desc="Processing spectra"):
         try:
             spectrum_data, interpolated, formula, params, filename = load_and_interpolate_spectrum(
-                spectrum_file.getvalue(), spectrum_file.name, ref_freqs
+                spectrum_file.read(), spectrum_file.name, ref_freqs
             )
             
             # Transform the spectrum
@@ -1097,12 +1250,3 @@ def analyze_spectra(model, spectra_files, knn_neighbors=5):
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
