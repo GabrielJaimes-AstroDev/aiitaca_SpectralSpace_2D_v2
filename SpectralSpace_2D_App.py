@@ -690,14 +690,12 @@ def main():
         if st.button("Generate Filtered Spectra and Analyze") and st.session_state.model is not None and hasattr(st.session_state, 'spectrum_file'):
             with st.spinner("Generating filtered spectra and analyzing..."):
                 try:
-                    # Load the original spectrum
-                    spectrum_content = st.session_state.spectrum_file.getvalue()
-                    spectrum_filename = st.session_state.spectrum_file.name
-                    
-                    # Read spectrum data
-                    lines = spectrum_content.decode('utf-8').splitlines()
-                    data_lines = [line for line in lines if not (line.strip().startswith('!') or line.strip().startswith('//'))]
-                    spectrum_data = np.loadtxt(data_lines)
+                    freq, spec, header, input_logn, input_tex = read_spectrum_file(st.session_state.spectrum_file)
+                    spectrum_data = np.column_stack((freq, spec))
+                except Exception as e:
+                    st.error(f"Error reading spectrum file: {str(e)}")
+                    return
+                # ...existing code...
                     
                     # Generate filtered spectra
                     filtered_spectra = generate_filtered_spectra(
