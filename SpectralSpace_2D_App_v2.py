@@ -431,7 +431,7 @@ def plot_neighbors_logn_tex(model, results, selected_idx, knn_neighbors, expecte
     return fig
 
 def extract_filter_params(filename):
-    velo_match = re.search(r'velo([0-9]+(?:\.[0-9]+)?)', filename)
+    velo_match = re.search(r'velo(-?[0-9]+(?:\.[0-9]+)?)', filename)
     fwhm_match = re.search(r'fwhm([0-9]+(?:\.[0-9]+)?)', filename)
     sigma_match = re.search(r'sigma([0-9]+(?:\.[0-9]+)?)', filename)
 
